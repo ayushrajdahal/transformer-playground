@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from dataclasses import dataclass
-from fastkan import FastKANLayer
+# from fastkan import FastKANLayer
 
 start = time.time()
 def timer_end():
@@ -27,6 +27,8 @@ class CausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd)
         self.c_proj = nn.Linear(config.n_embd, config.n_embd)
+
+        self.c_proj.NANOGPT_SCALE_INIT = 1
 
         self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size)).view(1, 1, config.block_size, config.block_size)) # notice the view(1,1,..) to make it broadcastable
 
@@ -90,7 +92,10 @@ class GPT(nn.Module):
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
-            torch.nn.init.normal_(module.weight, mean=0, std=0.02)
+            std = 0.02
+            if hasattr(module, 'NANOGPT_SCALE_INIT'):
+                std *= (2 * self.config.n_layer) ** -0.5 # NOTE: the 2x is because there are two blocks where residual connections are used. TODO: look more into this
+            torch.nn.init.normal_(module.weight, mean=0, std=std)
             if module.bias is not None:
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
@@ -194,6 +199,12 @@ elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
     device = "mps"
 print("device:", device)
 
+
+torch.manual_seed(1337)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(1337)
+    # torch.cuda.manual_seed_all(1337)
+
 train_loader = DataLoaderLite(B=4, T=32)
 
 # model = GPT.from_pretrained('gpt2')
@@ -208,6 +219,7 @@ for i in range(10):
     x, y = x.to(device), y.to(device)
     optimizer.zero_grad()
     logits, loss = model(x, y)
+    import code; code.interact(local=locals()) # breakpoint for inspecting logits dtype; TODO: look into tensor cores
     loss.backward()
     optimizer.step()
     print(f"step {i+1}, loss: {loss.item():.4f}")
