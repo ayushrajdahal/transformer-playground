@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 start = time.time()
 def timer_end():
-    print(f"time taken using {device}: {(time.time() - start):.4f}", )
+    print(f"time taken using {device}: {(time.time() - start):.4f}s", )
 
 @dataclass
 class GPTConfig:
@@ -207,6 +207,8 @@ if torch.cuda.is_available():
 
 train_loader = DataLoaderLite(B=4, T=32)
 
+torch.set_float32_matmul_precision('high')
+
 # model = GPT.from_pretrained('gpt2')
 model = GPT(GPTConfig())
 # print("didn't crash yay")
@@ -215,14 +217,19 @@ model.to(device)
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 for i in range(10):
+    t0 = time.time()
     x, y = train_loader.next_batch()
     x, y = x.to(device), y.to(device)
     optimizer.zero_grad()
     logits, loss = model(x, y)
-    import code; code.interact(local=locals()) # breakpoint for inspecting logits dtype; TODO: look into tensor cores
+    # import code; code.interact(local=locals()) # breakpoint for inspecting logits dtype; TODO: look into tensor cores
     loss.backward()
     optimizer.step()
-    print(f"step {i+1}, loss: {loss.item():.4f}")
+    if device == 'cuda':
+        torch.cuda.synchronize()
+    t1 = time.time()
+    tokens_per_sec = train_loader.B * train_loader.T / (t1 - t0)
+    print(f"step {i+1}, loss: {loss.item():.4f}, dt: {(time.time() - t0)*1000:.2f}ms, tokens/sec: {tokens_per_sec:.2f}")
 
 timer_end()
 
