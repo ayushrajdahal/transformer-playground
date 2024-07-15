@@ -51,11 +51,11 @@ class CausalSelfAttention(nn.Module):
         out = out.transpose(1,2).contiguous().view(B, T, C) # TODO: see what the contiguous() function does
         return self.c_proj(out)
 
-class TanhGELU(nn.Module):
-    # NOTE: example of kernel fusion: all the operations in this module are fused into a single kernel when using compile, which reduces the roundtrips betn the memory and GPU
-    # EVEN BETTER: FlashAttention, kernel fusion that torch compile cannot find. Reason: it requires algorithmic rewrite of how attention is implemented
-    def forward(self, inputs):
-        return 0.5 * inputs * (1 + torch.tanh(math.sqrt(2 / math.pi) * (inputs + 0.044715 * torch.pow(inputs, 3.0))))
+# class TanhGELU(nn.Module):
+#     # NOTE: example of kernel fusion: all the operations in this module are fused into a single kernel when using compile, which reduces the roundtrips betn the memory and GPU
+#     # EVEN BETTER: FlashAttention, kernel fusion that torch compile cannot find. Reason: it requires algorithmic rewrite of how attention is implemented
+#     def forward(self, inputs):
+#         return 0.5 * inputs * (1 + torch.tanh(math.sqrt(2 / math.pi) * (inputs + 0.044715 * torch.pow(inputs, 3.0))))
 
 
 class MLP(nn.Module):
@@ -227,7 +227,8 @@ model = GPT(GPTConfig())
 model.to(device)
 # torch.compile(model) # NOTE: this operation isn't supported in Python 3.11+
 
-optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8)
+
 for i in range(10):
     t0 = time.time()
     x, y = train_loader.next_batch()
@@ -237,6 +238,7 @@ for i in range(10):
     logits, loss = model(x, y) # After this, activations/logits are in bfloat16, but parameters will still be in float32; TODO: see screenshot for doc containing more info
     # import code; code.interact(local=locals()) # breakpoint for inspecting logits dtype; TODO: look into tensor cores
     loss.backward()
+    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     optimizer.step()
     if device == 'cuda':
         torch.cuda.synchronize()
