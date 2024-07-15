@@ -2,8 +2,6 @@ import math
 import time
 import tiktoken
 import torch
-import torch.backends
-import torch.mps
 import torch.nn as nn
 import torch.nn.functional as F
 from dataclasses import dataclass
