@@ -1,13 +1,16 @@
+import math
+import time
+import tiktoken
 import torch
 import torch.backends
 import torch.mps
 import torch.nn as nn
 import torch.nn.functional as F
 from dataclasses import dataclass
-import math
-import time
 
 start = time.time()
+def timer_end():
+    print(f"time taken using {device}: {(time.time() - start):.4f}", )
 
 @dataclass
 class GPTConfig:
@@ -83,7 +86,7 @@ class GPT(nn.Module):
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
     
-    def forward(self, idx):
+    def forward(self, idx, targets=None):
         B, T = idx.size()
         pos = torch.arange(T, dtype=torch.long, device=idx.device)
         pos_emb = self.transformer.wpe(pos)
@@ -92,9 +95,10 @@ class GPT(nn.Module):
         for block in self.transformer.h:
             x = block(x)
         x = self.transformer.ln_f(x)
-        x = self.lm_head(x)
+        logits = self.lm_head(x)
         # the x returned is one softmax away from becoming probabilities
-        return x
+        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1)) if targets is not None else None
+        return logits, loss
     
     # COPIED
     @classmethod
@@ -152,22 +156,46 @@ class GPT(nn.Module):
 device = "cpu"
 if torch.cuda.is_available():
     device = "cuda"
-# elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-#     device = "mps"
+elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    device = "mps"
 print("device:", device)
 
-num_return_sequences = 5
-max_length = 30
+
+# get a data batch
+
+import tiktoken
+enc = tiktoken.get_encoding('gpt2')
+with open('input.txt', 'r') as f:
+    text = f.read()
+
+text = text[:1000]
+tokens = enc.encode(text)
+B,T = 4, 32
+buf = torch.tensor(tokens[:B*T+1], dtype=torch.long, device=device)
+x = buf[:-1].view(B, T)
+y = buf[1:].view(B, T)
 
 # model = GPT.from_pretrained('gpt2')
 model = GPT(GPTConfig())
-print("didn't crash yay")
-
-model.eval()
+# print("didn't crash yay")
 
 model.to(device)
+logits, loss = model(x, y)
 
-import tiktoken
+optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+for i in range(5):
+    optimizer.zero_grad()
+    logits, loss = model(x, y)
+    loss.backward()
+    optimizer.step()
+    print(f"step {i}, loss: {loss.item():.4f}")
+
+timer_end()
+
+import sys; sys.exit(0)
+model.eval()
+num_return_sequences = 5
+max_length = 30
 enc = tiktoken.get_encoding('gpt2')
 tokens = enc.encode("Hello, I'm a language model,")
 tokens = torch.tensor(tokens, dtype=torch.long)
@@ -202,5 +230,3 @@ for i in range(num_return_sequences):
     tokens = x[i, :max_length].tolist()
     decoded = enc.decode(tokens)
     print(">", decoded)
-
-print(f"time taken using {device}:", time.time() - start)
