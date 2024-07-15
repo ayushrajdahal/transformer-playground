@@ -195,8 +195,8 @@ class DataLoaderLite:
 device = "cpu"
 if torch.cuda.is_available():
     device = "cuda"
-elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-    device = "mps"
+# elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+#     device = "mps"
 print("device:", device)
 
 
@@ -214,6 +214,7 @@ model = GPT(GPTConfig())
 # print("didn't crash yay")
 
 model.to(device)
+# torch.compile(model) # NOTE: this operation isn't supported in Python 3.11+
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 for i in range(10):
@@ -221,7 +222,8 @@ for i in range(10):
     x, y = train_loader.next_batch()
     x, y = x.to(device), y.to(device)
     optimizer.zero_grad()
-    logits, loss = model(x, y)
+    # with torch.autocast(device_type=device, dtype=torch.bfloat16): # NOTE: this makes the forward pass use bfloat16, which has lesser precision than float32 but the same range w/o gradient boosting
+    logits, loss = model(x, y) # After this, activations/logits are in bfloat16, but parameters will still be in float32; TODO: see screenshot for doc containing more info
     # import code; code.interact(local=locals()) # breakpoint for inspecting logits dtype; TODO: look into tensor cores
     loss.backward()
     optimizer.step()
