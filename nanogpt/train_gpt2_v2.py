@@ -41,11 +41,22 @@ class CausalSelfAttention(nn.Module):
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1,2)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1,2)
 
-        attn = (q @ k.transpose(-2,-1)) * (1 / math.sqrt(k.size(-1))) # TODO: see if q @ k.transpose(-2,-1) gives the same result as q.transpose(1,2) @ k, see if k.size(-1) is the same as n_embd
-        attn = attn.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
-        logits = F.softmax(attn, dim=-1)
-        out = (logits @ v).transpose(1,2).contiguous().view(B, T, C) # TODO: see what the contiguous() function does
+        # att = (q @ k.transpose(-2,-1)) * (1 / math.sqrt(k.size(-1))) # TODO: see if q @ k.transpose(-2,-1) gives the same result as q.transpose(1,2) @ k, see if k.size(-1) is the same as n_embd
+        # att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
+        # att = F.softmax(att, dim=-1)
+        # out = att @ v
+
+        out = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+
+        out = out.transpose(1,2).contiguous().view(B, T, C) # TODO: see what the contiguous() function does
         return self.c_proj(out)
+
+class TanhGELU(nn.Module):
+    # NOTE: example of kernel fusion: all the operations in this module are fused into a single kernel when using compile, which reduces the roundtrips betn the memory and GPU
+    # EVEN BETTER: FlashAttention, kernel fusion that torch compile cannot find. Reason: it requires algorithmic rewrite of how attention is implemented
+    def forward(self, inputs):
+        return 0.5 * inputs * (1 + torch.tanh(math.sqrt(2 / math.pi) * (inputs + 0.044715 * torch.pow(inputs, 3.0))))
+
 
 class MLP(nn.Module):
     def __init__(self, config):
